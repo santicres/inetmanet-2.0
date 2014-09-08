@@ -49,6 +49,7 @@ class INET_API LinearMobility : public MovingMobilityBase
 
   public:
     LinearMobility();
+    double getSpeed();
 };
 
 #endif

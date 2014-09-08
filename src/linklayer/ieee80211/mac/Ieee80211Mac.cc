@@ -26,6 +26,8 @@
 #include "Radio80211aControlInfo_m.h"
 #include "Ieee80211eClassifier.h"
 #include "Ieee80211DataRate.h"
+#include "MobilityAccess.h"
+#include "LinearMobility.h"
 #include "opp_utils.h"
 #ifdef  USEMULTIQUEUE
 #include "FrameBlock.h"
@@ -512,6 +514,37 @@ void Ieee80211Mac::configureAutoBitRate()
         maxSuccessThreshold = par("maxSuccessThreshold");
         EV<<"MAC Transmission algorithm : AARF Rate"  <<endl;
         break;
+    case 3:
+    {
+        rateControlMode = RATE_CARS;
+        //Set the timer to recalculate de bitrate
+        autobitrateTimerPeriod = par("autobitrateTimerPeriod");
+        if (autobitrateTimerPeriod>0)
+            autobitrateTimer = new cMessage("autobitrateTimer");
+        if (autobitrateTimer)
+            scheduleAt(simTime() + autobitrateTimerPeriod, autobitrateTimer);
+        //** end configure timer
+        //Create ACARS object to getting PER with rate adaptation
+        acarsPER = new ACARS();
+        previous_distance = 0;
+        current_distance = 0;
+
+        //Initialize the map of last PER.
+        int idx_rate;
+        int bitrate_aux;
+        double first_PER = 0.5;
+        for(idx_rate=Ieee80211Descriptor::getMinIdx(opMode);idx_rate <= Ieee80211Descriptor::getMaxIdx(opMode);idx_rate++)
+        {
+            bitrate_aux = Ieee80211Descriptor::getDescriptor(idx_rate).bitrate;
+            std::vector<double> vectorPERs;
+            vectorPERs.push_back(first_PER);
+            //mapLastPERs.insert(std::pair<int,std::vector<double> >(Ieee80211Descriptor::getIdx(opMode, bitrate_aux),std::vector<double>(10)));
+            mapLastPERs.insert(std::pair<int,std::vector<double> >(Ieee80211Descriptor::getIdx(opMode, bitrate_aux),vectorPERs));
+        }
+
+        EV<<"MAC Transmission algorithm : Context-aware Rate Selection CARS algorithm" << endl;
+        break;
+    }
     default:
         throw cRuntimeError("Invalid autoBitrate parameter: '%d'", autoBitrate);
         break;
@@ -604,6 +637,54 @@ void Ieee80211Mac::initializeQueueModule()
  */
 void Ieee80211Mac::handleSelfMsg(cMessage *msg)
 {
+
+    EV << "Timer" << msg->getName() << endl;
+
+    if (strcmp(msg->getName(),"autobitrateTimer") == 0)
+    {
+        double best_bitrate, speed = 0.0, alpha_weight;
+        int packet_length;
+
+        //Get speed of the host
+        cModule *module_host = getParentModule()->getParentModule();
+
+        LinearMobility *mobilityModule  = dynamic_cast<LinearMobility*>(module_host->getSubmodule("mobility"));
+
+        if(module_host)
+        {
+            speed = mobilityModule->getSpeed();
+        }
+
+        //Get distance between transmitter and destination
+        //Distance from AccessPoint
+        Coord apCoord;
+        cModule *module = simulation.getModuleByPath("accessPoint");
+        if(module)
+        {
+            apCoord = MobilityAccess().get(module)->getCurrentPosition();
+        }
+
+        Coord cliCoord;
+        if(module_host)
+        {
+            cliCoord = mobilityModule->getCurrentPosition();
+        }
+        previous_distance = current_distance;
+        current_distance = getDistance(cliCoord,apCoord);
+
+        //Get packet length
+        packet_length = par("packetLength");//TODO este par᭥tro debe venir del nivel de aplicaci?        //Update bitrate
+        previous_bitrateIdx = rateIndex;
+        alpha_weight = acarsPER->getAlpha(speed);
+        best_bitrate = cars_getrate(speed,alpha_weight,packet_length);
+        setBitrate(best_bitrate);
+
+        //Send timer signal for the next iteration of cars autobitrate
+        scheduleAt(simTime()+ autobitrateTimerPeriod, autobitrateTimer);
+
+        return;
+
+    }
     if (msg==throughputTimer)
     {
         throughputLastPeriod = recBytesOverPeriod/SIMTIME_DBL(throughputTimePeriod);
@@ -3121,5 +3202,170 @@ void Ieee80211Mac::receiveSignal(cComponent *src, simsignal_t id, long x)
         // send next frame in the block
 
     }
+}
+/**
+ * The function EC uses the
+context information, transmission rate and packet length as
+input parameters, and outputs the estimated packet error rate.
+Post: result = PER (packet error rate)
+ */
+double Ieee80211Mac::Ec(double speed, double rate, double packet_length)
+{
+    double PER = 0.0;
+    double temp1 = 0.0, temp2 = 0.0;
+    double previous_PER = 0.0;
+
+    /*
+     *  Effect of the distance and rate are modelled according
+     *  to Free Space Path Loss Model. In this model PER propotional
+     *  to the square of distance and frequency.
+     *  Which means if distance and bitarate increase by factor of two,
+     *  then PER will increase by factor of 16.
+     *
+    */
+
+    temp1 = (rate/Ieee80211Descriptor::getDescriptor(previous_bitrateIdx).bitrate);
+    temp1 = (temp1*temp1);
+
+    //Effect of Distance
+    if(previous_distance == 0)
+    {
+        temp2 = 1;
+    }
+    else
+    {
+        temp2 = (current_distance/previous_distance);
+    }
+    temp2 = (temp2*temp2);
+
+    //previous_PER se obtiene desde el mapaq
+    previous_PER = mapLastPERs.at(previous_bitrateIdx).back();//coge el ?ltimo PER obtenido para este bitrate
+    //TODO falta limitar el n?mero de PER para almacenar. Son 10 PER
+    PER = (previous_PER*temp1*temp2);
+
+    return PER;
+}
+double getCumulativeTotalEWMA(int idx_rate,std::vector<double> lastPERs)
+{
+    double res = 0.0;
+    double temp1 = 0.0;
+    double temp2 = 0.0;
+
+    for(int i = 1;i <= (int)lastPERs.size();i++)
+    {
+        temp1 = pow((double)2,i);
+        temp2 = lastPERs[i-1];
+        res = res + (temp2 * temp1);
+    }
+    return res;
+}
+double getTotalEWMA(int val)
+{
+    //This method return value = (2^val) + (2^(val-1)) + (2^(val-2)) + ... + 2^2 + 2^1
+    int i = 0;
+    double total = 0;
+
+
+    for(i = val ; i > 0 ; i--)
+    {
+        total = total + pow((double)2,i);
+    }
+
+    return total;
+}
+/**
+ * The function EH uses an exponentially weighted
+moving average (EWMA) of past frame transmission statistics
+for each bitrate, similar to schemes such as SampleRate [7].
+PER (packet error rate)
+EWMA with PER:
+
+PRE: rate in (Ieee80211DateRate)
+POST: PER (rate)_currentperiod = error packets / sending packets
+    result = PER = alpha * PER(rate)_currentperiod + (1- alpha)*PER(rate)_periodsbefore
+ */
+double Ieee80211Mac::Eh(double rate, double packet_length)
+{
+    double PER = 0.0;
+    double temp2 = 0.0;
+    double temp3 = 0.0;
+
+    int min_idx_rate = Ieee80211Descriptor::getMinIdx(opMode);
+    int max_idx_rate = Ieee80211Descriptor::getMaxIdx(opMode);
+
+    int idx_rate = min_idx_rate;
+    while (idx_rate <= max_idx_rate)
+    {//Recorre los bitrates de un opMode
+        if(Ieee80211Descriptor::getDescriptor(idx_rate).bitrate == rate)
+        {
+            std::vector<double> lastPERs;
+            lastPERs = mapLastPERs.at(idx_rate);
+            if(lastPERs.size() > 0)
+            {
+
+                temp2 = getCumulativeTotalEWMA(idx_rate,lastPERs);
+                temp3 = getTotalEWMA(lastPERs.size());
+                PER = temp2 / temp3;
+            }
+        }
+        idx_rate++;
+    }
+
+    return PER;
+}
+
+/**
+ * Select the best bitrate using CARS (Context-aware rate selection) algorithm.
+ * context_information: speed, distance to receiver
+ * alpha_weight: weight depending of speed
+ * packet_length: size of packet
+ * context_information will  be speed in the first version
+ * gamma = 8 (for a reseach ACARS paper)
+ * POST: res = best_rate in Ieee80211DataDescriptor
+ *
+ */
+double Ieee80211Mac::cars_getrate(double context_information, double alpha_weight, int packet_length)
+{
+    double bitrate;
+    double max_throughput = 0, throughput = 0;
+    double PER;//Packet Error Rate
+    double avg_retries, gamma = 8;
+
+    int min_idx_rate = Ieee80211Descriptor::getMinIdx(opMode);
+    int max_idx_rate = Ieee80211Descriptor::getMaxIdx(opMode);
+    double best_rate = Ieee80211Descriptor::getDescriptor(min_idx_rate).bitrate;
+//?update_distance?
+    int idx_rate = min_idx_rate;
+    while (idx_rate <= max_idx_rate)
+    {
+        bitrate = Ieee80211Descriptor::getDescriptor(idx_rate).bitrate;
+
+        PER = (alpha_weight * Ec(context_information,bitrate,packet_length)) + ((1 - alpha_weight)*Eh(bitrate,packet_length));
+        //insert the per in the map
+        mapLastPERs.at(idx_rate).push_back(PER);
+
+        avg_retries = ((transmissionLimit * pow(PER,transmissionLimit + 1)) - ((transmissionLimit + 1)*pow(PER,transmissionLimit)) + 1) / ((1 - PER) + transmissionLimit * pow(PER,transmissionLimit));
+
+        throughput = bitrate / (avg_retries * pow((1 - pow(PER,transmissionLimit)),gamma));//gamma will be 8 for a reseach ACARS paper
+
+        if (throughput > max_throughput)
+        {
+            best_rate = bitrate;
+            max_throughput = throughput;
+        }
+        idx_rate++;
+    }//end while
+
+    return best_rate;
+
+}
+double Ieee80211Mac::getDistance(Coord node1, Coord node2)
+{
+    double distance = 0.0;
+
+    distance = ((node1.x-node2.x)*(node1.x-node2.x)) + ((node1.y-node2.y)*(node1.y-node2.y));
+    distance = sqrt(distance);
+
+    return distance;
 }
 

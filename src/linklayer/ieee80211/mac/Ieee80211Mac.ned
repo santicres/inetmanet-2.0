@@ -112,6 +112,11 @@ simple Ieee80211Mac
         int maxSuccessThreshold = default(60);
         double successCoeff = default(2.0);
         double timerCoeff = default(2.0);
+        
+        //Timer for context-aware rate selection SCH
+        double autobitrateTimerPeriod @unit("s") = default(10ms);// period of time used for CARS to check if it needed change rate 
+        volatile int packetLength @unit("B") = default(100B);
+        
         // duplicate detection
         bool duplicateDetectionFilter = default(true); // whether to detect and filter out duplicate frames
         bool purgeOldTuples = default(true); // delete old tuples in the duplicate list

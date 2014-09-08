@@ -65,3 +65,9 @@ void LinearMobility::move()
         stationary = true;
     }
 }
+
+double LinearMobility::getSpeed()
+{
+    return this->speed;
+}
+
