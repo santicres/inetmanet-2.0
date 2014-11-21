@@ -36,6 +36,7 @@
 #include "FSMA.h"
 #include "IQoSClassifier.h"
 #include "ACARS.h"
+#include "CARS.h"
 #include "Coord.h"
 #ifdef  USEMULTIQUEUE
 #include "MultiQueue.h"
@@ -112,10 +113,13 @@ class INET_API Ieee80211Mac : public WirelessMacBase, public cListener
 
     enum
     {
+        RATE_ACARS,  //Adapted CARS
 		RATE_CARS,   // Context-aware Rate Selection
         RATE_ARF,   // Auto Rate Fallback
         RATE_AARF,  // Adaptatice ARF
         RATE_CR,    // Constant Rate
+        RATE_ONOE,
+        RATE_SAMPLERATE
     } rateControlMode;
 
     WifiPreamble wifiPreambleType;
@@ -174,23 +178,22 @@ class INET_API Ieee80211Mac : public WirelessMacBase, public cListener
     simtime_t throughputTimePeriod;
     cMessage * throughputTimer;
     double  throughputLastPeriod;
-/************SCH***********/
-    cMessage *autobitrateTimer;//timer to recalculate de best bitrate
+/************SCH-CARS***********/
+    cMessage     *autobitrateTimer;//timer to recalculate de best bitrate
     simtime_t    autobitrateTimerPeriod; //period to update the timer to recalculate the bitrate
 
-    std::map<int,std::vector<double> > mapLastPERs;//Last 10 PERs of each data rate. map<idx,vector of PERs>. vector(PER) is ordered ascending as a queue(newer at the end).
-    double previous_bitrateIdx;//One bitrate before that the current bitrate. Debe ser un idx.
     double current_distance, previous_distance;//TODO calcular
-    ACARS *acarsPER;
-    /**
-     * Context-aware rate selection. Implementation of CARS algorithm using context information (speed, neighbour position, ...)
-     */
-    double    cars_getrate  (double context_information, double alpha_weight, int packet_length);
-    double    Ec            (double speed, double rate, double packet_length);
-    double    Eh            (double rate, double packet_length);
-    double    getDistance   (Coord node1, Coord node2);
+    CARS *carsPER_bitrateadaptation;
 
 /******************************/
+    /*******SCH-ACARS algorithm**************/
+    ACARS *acars_bitrateadaptation;
+    //Check if it is needed a bitrate change.
+    virtual void checkBitRateAdaptation(double in_snr);
+
+
+
+    /////////////////////////////////////////
 
 
     /** Maximum number of frames in the queue; should be set in the omnetpp.ini */

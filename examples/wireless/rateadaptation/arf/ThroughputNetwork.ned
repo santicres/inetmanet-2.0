@@ -27,10 +27,10 @@ import inet.examples.wireless.throughput.WirelessAPWithSink;
 import inet.linklayer.ieee80211.Ieee80211Nic;
 import inet.mobility.contract.IMobility;
 import inet.mobility.single.LinearMobility;
-import inet.nodes.inet.AdhocHost;
+import inet.nodes.inet.WirelessHost;
 import inet.nodes.wireless.AccessPoint;
 import inet.world.radio.ChannelControl;
-
+import inet.networklayer.autorouting.ipv4.IPv4NetworkConfigurator;
 
 module ThroughputClient
 {
@@ -52,7 +52,7 @@ module ThroughputClient
                 @display("b=40,24;p=180,60,col");
         }
         mobility: <mobilityType> like IMobility {
-        //randomWPMobility: RandomWPMobility {
+            //randomWPMobility: RandomWPMobility {
             @display("p=52,134");
             //speed = uniform(16, 28);//50kmh - 100kmh
             //speed = 2mps;
@@ -67,32 +67,6 @@ module ThroughputClient
         wlan.radioIn <-- radioIn;
 }
 
-module ThroughputServer
-{
-    parameters:
-        @display("i=device/wifilaptop");
-        @node();
-    gates:
-        input radioIn @directIn;
-
-    submodules:
-        notificationBoard: NotificationBoard {
-            parameters:
-                @display("p=60,70");
-        }
-        sink: Sink {
-            parameters:
-                @display("p=210,68,col");
-        }
-        ieee80211Nic: Ieee80211Nic {
-            @display("p=141,113");
-            mgmtType = "Ieee80211MgmtSTASimplified";
-        }
-    connections allowunconnected:
-        sink.in++ <-- ieee80211Nic.upperLayerOut;
-        radioIn --> ieee80211Nic.radioIn;
-}
-
 network ThroughputNetwork
 {
     parameters:
@@ -105,17 +79,20 @@ network ThroughputNetwork
             parameters:
                 @display("r=,,#707070");
         }
-        srvHost: ThroughputServer {
-            parameters:
-                @display("p=350,350;r=,,#707070");
-        }
         channelControl: ChannelControl {
             @display("p=52,44");
         }
         accessPoint: AccessPoint {
             parameters:
-            	wlan[*].mgmtType = "Ieee80211MgmtAPSimplified";
-            	@display("p=230,154");
+                wlan[*].mgmtType = "Ieee80211MgmtAPSimplified";
+                @display("p=230,154");
+        }
+        wirelessMobilityHost[numCli]: WirelessHost {
+            @display("p=307,54");
+        }
+        configurator: IPv4NetworkConfigurator {
+            config=xml("<config><interface hosts='*' address='145.236.x.x' netmask='255.255.0.0'/></config>");
+            @display("p=140,50");
         }
 }
 

@@ -46,3 +46,5 @@ xxx
 /tmp/
 /src/.tmp*
 
+misc/gdb/inet/printers.pyc
+*.pyc
