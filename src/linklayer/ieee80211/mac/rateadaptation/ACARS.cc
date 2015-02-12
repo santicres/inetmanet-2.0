@@ -8,6 +8,7 @@ ACARS::ACARS(char opMode)
 {
     this->opMode = opMode;
     current_SNR = 0;
+    idxBitrate_currentSNR = -1;
     //Initialize the snr map
     int min_idx_rate = Ieee80211Descriptor::getMinIdx(opMode);
     int max_idx_rate = Ieee80211Descriptor::getMaxIdx(opMode);
@@ -29,9 +30,11 @@ double ACARS::getBitRate(int rateIndex, double snr)
 {
     double idx_BestBitrate;
     double l_snr;
+    double maximum_snr;
 
-    this->current_SNR = snr;
     //insert the snr in the map with the index of the bitrate
+    EV<<" ACARS: Calculating new bitrate on opMode="<<opMode<<" on rateindex "<<rateIndex<<" corresponding rate "<<Ieee80211Descriptor::getDescriptor(rateIndex).bitrate<<endl;
+    idx_BestBitrate = rateIndex;
     mapLastSNR.at(rateIndex) = snr;
 
     //Loop on the bitrates to check the snr
@@ -40,21 +43,27 @@ double ACARS::getBitRate(int rateIndex, double snr)
     int idx_rate = min_idx_rate;
 
     bool endSearch = false;
+    maximum_snr = snr;
     while (idx_rate <= max_idx_rate and !endSearch)
     {
         l_snr = mapLastSNR[idx_rate];
-        if (l_snr == 0 || l_snr > snr)
+        if(l_snr == 0)
         {
             idx_BestBitrate = idx_rate;
             endSearch = true;
         }
-        if(!endSearch)
-            idx_rate++;
+        else if (l_snr > maximum_snr)
+        {
+            idx_BestBitrate = idx_rate;
+            maximum_snr = l_snr;
+        }
+        idx_rate++;
     }//end while
 
     if(idx_BestBitrate != this->idxBitrate_currentSNR)
     {
         this->idxBitrate_currentSNR = idx_BestBitrate;
+        this->current_SNR = snr;
     }
 
     return idx_BestBitrate;

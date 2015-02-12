@@ -37,6 +37,8 @@
 #include "IQoSClassifier.h"
 #include "ACARS.h"
 #include "CARS.h"
+#include "Onoe.h"
+#include "SampleRate.h"
 #include "Coord.h"
 #ifdef  USEMULTIQUEUE
 #include "MultiQueue.h"
@@ -191,11 +193,13 @@ class INET_API Ieee80211Mac : public WirelessMacBase, public cListener
     //Check if it is needed a bitrate change.
     virtual void checkBitRateAdaptation(double in_snr);
 
-
-
     /////////////////////////////////////////
+    /***********SCH-ONOE*******************/
+    Onoe *onoe_bitrateadaptation;
+    /***********SCH-SAMPLE-RATE*************************/
+    SampleRate *samplerate_bitrateadaptation;
 
-
+    /***************************************************/
     /** Maximum number of frames in the queue; should be set in the omnetpp.ini */
     int maxQueueSize;
     int maxCategorieQueueSize;

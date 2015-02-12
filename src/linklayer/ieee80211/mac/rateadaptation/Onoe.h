@@ -15,6 +15,11 @@
 
 #ifndef ONOE_H_
 #define ONOE_H_
+
+#include <string>
+#include <iostream>
+#include <sstream>
+
 /**
  * Implementation of Onoe adaptative bitrate algorithm.
  * Parámetros entrada:
@@ -28,11 +33,11 @@
         1. Si no se ha podido entregar ningún paquete -> baja un bitrate.
 
         2. Si 10 o más paquetes se han mandado y la media de reintentos por paquete es mayor de 1 -> baja un bitrate
-
+            averageRetry
         3. Si más de un 10% de los paquetes necesitan un reintento, se decrementa el número de créditos (nunca por debajo de 0).
-
+            retryCounter
         4. Si menos de un 10% de los paquetes necesitan un reintento, se incrementa el número de créditos.
-
+            retryCounter
         5. Si el bitrate actual tiene 10 o más créditos, se incrementa el bit-rate.
 
         6. Continuar con el mismo bit-rate.
@@ -41,18 +46,26 @@
         el algoritmo funciona si la variable "recovery" en ieee80211Mac está a true.
 
  */
-class Onoe {
-public:
-    Onoe();
-    virtual ~Onoe();
 
-    enum TypeOnoeDecision
+enum TypeRateDecision
     {
         INCREASE_BITRATE,
         DECREASE_BITRATE,
         NONE
     };//Decision about increase, decrease or nothing with credits.
 
+class Onoe {
+
+private:
+    int creditThreshold;//Threshold for credits to increase the threshold. 0 by default
+    int credits;
+    int failedCounter;
+    int successCounter;
+    int retryCounter;
+    int messagesWithRetry;
+public:
+    Onoe();
+    virtual ~Onoe();
 
     /**
      * Reset the variables of algorithm
@@ -84,18 +97,9 @@ public:
      * Decide if the bitrate must be increase or decrease the bitrate.
      * When NONE is decided, the credit will be increase or decrease.
      */
-    TypeOnoeDecision onoe_decision();
+    TypeRateDecision checkBitrateDecision();
 
-    void resetCredits();
-
-
-
-private:
-    int creditThreshold;//Threshold for credits to increase the threshold. 0 by default
-    int credits;
-
-
-
+    std::string toString();
 
 
 };

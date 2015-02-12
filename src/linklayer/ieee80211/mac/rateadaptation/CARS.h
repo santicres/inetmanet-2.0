@@ -9,7 +9,6 @@
 
 class CARS {
 public:
-    CARS();
 
     //Methods should be called to initialize parameter at the begining
     void   setUpdateInterval(double val);//Update interval in ms
@@ -32,7 +31,7 @@ public:
     void   setPrevious_Bitrate(double bitrate);
     void   setPreviousIdx(double idx);
 
-    CARS(const CARS& orig,char opMode,int transmissionLimit);
+    CARS(char opMode, int transmissionLimit);
     virtual ~CARS();
 
 

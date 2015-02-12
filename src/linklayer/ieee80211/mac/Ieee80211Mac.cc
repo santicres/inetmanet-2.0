@@ -31,6 +31,7 @@
 #include "opp_utils.h"
 #ifdef  USEMULTIQUEUE
 #include "FrameBlock.h"
+#include "SampleRate.h"
 #endif
 
 // #define DISABLEERRORACK
@@ -525,7 +526,7 @@ void Ieee80211Mac::configureAutoBitRate()
             scheduleAt(simTime() + autobitrateTimerPeriod, autobitrateTimer);
         //** end configure timer
         //Create ACARS object to getting PER with rate adaptation
-        carsPER_bitrateadaptation = new CARS();
+        carsPER_bitrateadaptation = new CARS(opMode,transmissionLimit);
         EV<<"MAC Transmission algorithm : Context-aware Rate Selection CARS algorithm" << endl;
         break;
     }
@@ -536,11 +537,20 @@ void Ieee80211Mac::configureAutoBitRate()
         break;
     case 5:
         rateControlMode = RATE_ONOE;
+        //Set the timer to recalculate de bitrate
+        autobitrateTimerPeriod = par("autobitrateTimerPeriod");
+        if (autobitrateTimerPeriod>0)
+            autobitrateTimer = new cMessage("autobitrateTimer");
+        if (autobitrateTimer)
+            scheduleAt(simTime() + autobitrateTimerPeriod, autobitrateTimer);
 
+        onoe_bitrateadaptation = new Onoe();
         EV<<"MAC Transmission algorithm : ONOE Rate"  <<endl;
         break;
     case 6:
         rateControlMode = RATE_SAMPLERATE;
+        samplerate_bitrateadaptation = new SampleRate(opMode);
+
         EV<<"MAC Transmission algorithm : SAMPLERATE Rate"  <<endl;
 
         break;
@@ -642,45 +652,75 @@ void Ieee80211Mac::handleSelfMsg(cMessage *msg)
 
     if (strcmp(msg->getName(),"autobitrateTimer") == 0)
     {
-        double best_bitrate, speed = 0.0, alpha_weight;
-        int packet_length;
-
-        //Get speed of the host
-        cModule *module_host = getParentModule()->getParentModule();
-
-        LinearMobility *mobilityModule  = dynamic_cast<LinearMobility*>(module_host->getSubmodule("mobility"));
-
-        if(module_host)
+        if(rateControlMode == RATE_ONOE)
         {
-            speed = mobilityModule->getSpeed();
-        }
+//TODO onoe timer
+            TypeRateDecision bitrateDecicion = onoe_bitrateadaptation->checkBitrateDecision();
+            switch(bitrateDecicion)
+            {
+                case DECREASE_BITRATE:
+                    if (Ieee80211Descriptor::decIdx(rateIndex))
+                        setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+                    EV<<"ONOE -> Decrease bitrate. "<<onoe_bitrateadaptation->toString()<<endl;
 
-        //Get distance between transmitter and destination
-        //Distance from AccessPoint
-        Coord apCoord;
-        cModule *module = simulation.getModuleByPath("accessPoint");
-        if(module)
+                    break;
+                case INCREASE_BITRATE:
+                    if (Ieee80211Descriptor::incIdx(rateIndex))
+                        setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+                    EV<<"ONOE -> Increase bitrate. "<<onoe_bitrateadaptation->toString()<<endl;
+
+                    break;
+                default:
+                    EV<<"Onoe does not change the bitrate"<<onoe_bitrateadaptation->toString()<<endl;
+
+            }
+
+        }
+        else if(rateControlMode == RATE_CARS)
         {
-            apCoord = MobilityAccess().get(module)->getCurrentPosition();
-        }
+            double best_bitrate, speed = 0.0, alpha_weight;
+            int packet_length;
 
-        Coord cliCoord;
-        if(module_host)
-        {
-            cliCoord = mobilityModule->getCurrentPosition();
-        }
-        previous_distance = current_distance;
-        current_distance = carsPER_bitrateadaptation->getDistance(cliCoord,apCoord);
+            //Get speed of the host
+            cModule *module_host = getParentModule()->getParentModule();
 
-        //Get packet length
-        packet_length = par("packetLength");//TODO este par᭥tro debe venir del nivel de aplicaci?        //Update bitrate
-        carsPER_bitrateadaptation->setPreviousIdx(rateIndex);
-        alpha_weight = carsPER_bitrateadaptation->getAlpha(speed);
-        best_bitrate = carsPER_bitrateadaptation->getBitRate(speed,alpha_weight,packet_length);
-        setBitrate(best_bitrate);
+            LinearMobility *mobilityModule  = dynamic_cast<LinearMobility*>(module_host->getSubmodule("mobility"));
+
+            if(module_host)
+            {
+                speed = mobilityModule->getSpeed();
+            }
+
+            //Get distance between transmitter and destination
+            //Distance from AccessPoint
+            Coord apCoord;
+            cModule *module = simulation.getModuleByPath("accessPoint");
+            if(module)
+            {
+                apCoord = MobilityAccess().get(module)->getCurrentPosition();
+            }
+
+            Coord cliCoord;
+            if(module_host)
+            {
+                cliCoord = mobilityModule->getCurrentPosition();
+            }
+            previous_distance = current_distance;
+            current_distance = carsPER_bitrateadaptation->getDistance(cliCoord,apCoord);
+
+            //Get packet length
+            packet_length = par("packetLength");//TODO este par᭥tro debe venir del nivel de aplicaci?        //Update bitrate
+            carsPER_bitrateadaptation->setPreviousIdx(rateIndex);
+            alpha_weight = carsPER_bitrateadaptation->getAlpha(speed);
+            best_bitrate = carsPER_bitrateadaptation->getBitRate(speed,alpha_weight,packet_length);
+            EV<<"CARS change the bitrate from "<<bitrate<<" to bestbitrate "<<best_bitrate<<endl;
+            setBitrate(best_bitrate);
+
+        }
 
         //Send timer signal for the next iteration of cars autobitrate
         scheduleAt(simTime()+ autobitrateTimerPeriod, autobitrateTimer);
+
 
         return;
 
@@ -2329,23 +2369,18 @@ void Ieee80211Mac::giveUpCurrentTransmission()
     popTransmissionQueue();
     resetStateVariables();
     numGivenUp()++;
-    //TODO Onoe algorithm
+
 }
 
 void Ieee80211Mac::retryCurrentTransmission()
 {
     ASSERT(retryCounter() < transmissionLimit - 1);
     getCurrentTransmission()->setRetry(true);
-    if (rateControlMode == RATE_AARF || rateControlMode == RATE_ARF)
+    if (rateControlMode == RATE_AARF || rateControlMode == RATE_ARF ||
+            rateControlMode == RATE_ONOE)
         reportDataFailed();
     else
         retryCounter() ++;
-
-    //TODO Onoe algorithm
-    if(rateControlMode == RATE_ONOE)
-    {
-        //onoe->reportDataFailed();
-    }
 
     numRetry()++;
     backoff() = true;
@@ -2378,15 +2413,11 @@ void Ieee80211Mac::setMode(Mode mode)
 void Ieee80211Mac::resetStateVariables()
 {
     backoffPeriod() = SIMTIME_ZERO;
-    if (rateControlMode == RATE_AARF || rateControlMode == RATE_ARF)
+    if (rateControlMode == RATE_AARF || rateControlMode == RATE_ARF ||
+            rateControlMode == RATE_ONOE || rateControlMode == RATE_SAMPLERATE)
         reportDataOk();
     else
         retryCounter() = 0;
-
-    if (rateControlMode == RATE_ONOE){
-        //onoe->reportDataOk();
-    }
-
 
     if (!transmissionQueue()->empty())
     {
@@ -2646,16 +2677,39 @@ void Ieee80211Mac::reportDataOk()
     retryCounter() = 0;
     if (rateControlMode==RATE_CR)
        return;
-    successCounter ++;
-    failedCounter = 0;
-    recovery = false;
-    if ((successCounter == getSuccessThreshold() || timer == getTimerTimeout())
-            && Ieee80211Descriptor::incIdx(rateIndex))
+    if(rateControlMode == RATE_ONOE)
     {
-        setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
-        timer = 0;
-        successCounter = 0;
-        recovery = true;
+        onoe_bitrateadaptation->reportDataOk();
+    }
+    else if (rateControlMode == RATE_SAMPLERATE)
+    {//TODO probar
+        //Get the frame
+        Ieee80211DataOrMgmtFrame *frame = getCurrentTransmission();
+        if(frame != NULL)
+        {
+            simtime_t durationTime = frame->getDuration();
+            samplerate_bitrateadaptation->reportDataOk(durationTime.dbl());
+
+            int idx_bitrate;
+            idx_bitrate = samplerate_bitrateadaptation->getBitRate();
+            setBitrate(Ieee80211Descriptor::getDescriptor(idx_bitrate).bitrate);
+
+        }
+
+    }
+    else //Other bitrate adaptation algorithms
+    {
+        successCounter ++;
+        failedCounter = 0;
+        recovery = false;
+        if ((successCounter == getSuccessThreshold() || timer == getTimerTimeout())
+                && Ieee80211Descriptor::incIdx(rateIndex))
+        {
+            setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+            timer = 0;
+            successCounter = 0;
+            recovery = true;
+        }
     }
 }
 
@@ -2664,30 +2718,52 @@ void Ieee80211Mac::reportDataFailed(void)
     retryCounter()++;
     if (rateControlMode==RATE_CR)
        return;
-    timer++;
-    failedCounter++;
-    successCounter = 0;
-    if (recovery)
+    if (rateControlMode == RATE_ONOE)
     {
-        if (retryCounter() == 1)
-        {
-            reportRecoveryFailure();
-            if (Ieee80211Descriptor::decIdx(rateIndex))
-                setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
-        }
-        timer = 0;
+        onoe_bitrateadaptation->reportDataFailed();
     }
-    else
+    else if(rateControlMode == RATE_SAMPLERATE)
     {
-        if (needNormalFallback())
+        if(recovery)
         {
-            reportFailure();
-            if (Ieee80211Descriptor::decIdx(rateIndex))
-                setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+            samplerate_bitrateadaptation->reportRecoveryFailure();
         }
-        if (retryCounter() >= 2)
+        else
         {
+            samplerate_bitrateadaptation->reportDataFailed();
+        }
+        //Check if the successive failures is equal 4 to change the bitrate
+        int idx_bitrate;
+        idx_bitrate = samplerate_bitrateadaptation->getBitRate();
+        setBitrate(Ieee80211Descriptor::getDescriptor(idx_bitrate).bitrate);
+    }
+    else //Other bit rate adaptation algorithm
+    {
+        timer++;
+        failedCounter++;
+        successCounter = 0;
+        if (recovery)
+        {
+            if (retryCounter() == 1)
+            {
+                reportRecoveryFailure();
+                if (Ieee80211Descriptor::decIdx(rateIndex))
+                    setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+            }
             timer = 0;
+        }
+        else
+        {
+            if (needNormalFallback())
+            {
+                reportFailure();
+                if (Ieee80211Descriptor::decIdx(rateIndex))
+                    setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+            }
+            if (retryCounter() >= 2)
+            {
+                timer = 0;
+            }
         }
     }
 }
@@ -2733,6 +2809,10 @@ void Ieee80211Mac::reportRecoveryFailure(void)
     {
         setSuccessThreshold((int)(std::min((double)getSuccessThreshold() * successCoeff, (double) maxSuccessThreshold)));
         setTimerTimeout((int)(std::max((double)getMinTimerTimeout(), (double)(getSuccessThreshold() * timerCoeff))));
+    }
+    else if(rateControlMode == RATE_SAMPLERATE)
+    {
+        samplerate_bitrateadaptation->reportRecoveryFailure();
     }
 }
 
@@ -3235,14 +3315,18 @@ void Ieee80211Mac::checkBitRateAdaptation(double in_snr)
     switch(rateControlMode)
         {
             case RATE_ACARS:
+                EV<<"ACARS: Initiating checking for a new bit rate. Current rate: "<<Ieee80211Descriptor::getDescriptor(rateIndex).bitrate<<"with rateIndex:"<<rateIndex<<"and SNR:"<<in_snr<<endl;
                 new_bitrateIndex = acars_bitrateadaptation->getBitRate(rateIndex,in_snr);
                 if (new_bitrateIndex != rateIndex)
                 {
+                    EV<<"ACARS: Putting new bitrate:"<<Ieee80211Descriptor::getDescriptor(new_bitrateIndex).bitrate<<" rateIndex:"<<new_bitrateIndex<<endl;
                     double newBitrate = Ieee80211Descriptor::getDescriptor(new_bitrateIndex).bitrate;
                     rateIndex = new_bitrateIndex;
                     setBitrate(newBitrate);
                 }
 
+                break;
+            default:
                 break;
         }
 }

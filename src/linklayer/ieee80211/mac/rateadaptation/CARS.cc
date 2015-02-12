@@ -5,10 +5,7 @@
 
 using namespace std;
 
-CARS::CARS()
-{
-    int i = 0, j = 0;
-
+CARS::CARS(char opMode, int transmissionLimit) {
     sigma = 8;//This value  is set according to the CARS research Paper
     N = 4;//Default retransmissions
     first_PER = 0.5;
@@ -27,28 +24,11 @@ CARS::CARS()
     no_retransmissions = 0;
     previous_rate = 0;
 
-    //Mark P Band Rates in Mbps
-    p_band_rates[0] = 3.000;
-    p_band_rates[1] = 4.500;
-    p_band_rates[2] = 6.000;
-    p_band_rates[3] = 9.000;
-    p_band_rates[4] = 12.000;
-    p_band_rates[5] = 18.000;
-    p_band_rates[6] = 24.000;
-    p_band_rates[7] = 27.000;
+    this->opMode = opMode;
+    this->transmissionLimit = transmissionLimit;
+}
 
-    //Initializing Arrays
-    for( i = 0 ; i < 8 ; i++)
-    {
-        no_last_PERs[i] = 0;
-        for( j = 0 ; j < 10 ; j++)
-        {
-            last_PERs[i][j] = 0;
-        }
-    }
-
-
-
+CARS::~CARS() {
 }
 
 void CARS::setUpdateInterval(double val)//periodic update time interval in ms
@@ -116,7 +96,17 @@ double CARS::getBitRate(double context_information, double alpha_weight, int pac
 
         PER = (alpha_weight * Ec(context_information,bitrate,packet_length)) + ((1 - alpha_weight)*Eh(bitrate,packet_length));
         //insert the per in the map
-        mapLastPERs.at(idx_rate).push_back(PER);
+        if(mapLastPERs.find(idx_rate) != mapLastPERs.end())//If idx_rate exist
+        {
+            mapLastPERs.at(idx_rate).push_back(PER);
+        }
+        else
+        {
+            std::vector<double> vectorPER;
+            vectorPER.push_back(PER);
+            mapLastPERs.insert(std::pair<int,std::vector<double> >(idx_rate,vectorPER));
+            //std::pair<char,int>('a',100)
+        }
 
         avg_retries = ((transmissionLimit * pow(PER,transmissionLimit + 1)) - ((transmissionLimit + 1)*pow(PER,transmissionLimit)) + 1) / ((1 - PER) + transmissionLimit * pow(PER,transmissionLimit));
 
@@ -170,8 +160,15 @@ double CARS::Ec(double speed, double rate, double packet_length)
     temp2 = (temp2*temp2);
 
     //previous_PER se obtiene desde el mapaq
-    previous_PER = mapLastPERs.at(previous_bitrateIdx).back();//coge el ?ltimo PER obtenido para este bitrate
-    //TODO falta limitar el n?mero de PER para almacenar. Son 10 PER
+    if(mapLastPERs.find(previous_bitrateIdx) != mapLastPERs.end())
+    {
+        previous_PER = mapLastPERs.at(previous_bitrateIdx).back();//coge el ?ltimo PER obtenido para este bitrate
+        //TODO falta limitar el n?mero de PER para almacenar. Son 10 PER
+    }
+    else
+    {
+        previous_PER = 1;
+    }
     PER = (previous_PER*temp1*temp2);
 
     return PER;
@@ -256,11 +253,9 @@ double CARS::Eh(double rate, double packet_length)
     {//Recorre los bitrates de un opMode
         if(Ieee80211Descriptor::getDescriptor(idx_rate).bitrate == rate)
         {
-            std::vector<double> lastPERs;
-            lastPERs = mapLastPERs.at(idx_rate);
-            if(lastPERs.size() > 0)
+            if(mapLastPERs.find(idx_rate) != mapLastPERs.end())
             {
-
+                std::vector<double> lastPERs = mapLastPERs.at(idx_rate);
                 temp2 = getCumulativeTotalEWMA(idx_rate,lastPERs);
                 temp3 = getTotalEWMA(lastPERs.size());
                 PER = temp2 / temp3;
@@ -342,14 +337,6 @@ double CARS::getDistance(Coord node1, Coord node2)
     return distance;
 }
 
-
-CARS::CARS(const CARS& orig,char opMode, int transmissionLimit) {
-    this->opMode = opMode;
-    this->transmissionLimit = transmissionLimit;
-}
-
-CARS::~CARS() {
-}
 
 double CARS::getCumulativeTotalEWMA(int idx_rate,std::vector<double> lastPERs)
 {
