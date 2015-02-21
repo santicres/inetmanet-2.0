@@ -19,6 +19,25 @@
 SampleRate::SampleRate(char currentOpMode) {
     opMode = currentOpMode;
     currentIdxBitrate = -1;
+
+    //Initialize the map with rate statistics of each opMode
+    int min_idx_rate = Ieee80211Descriptor::getMinIdx(opMode);
+    int max_idx_rate = Ieee80211Descriptor::getMaxIdx(opMode);
+
+    for(int idx_rate=min_idx_rate;idx_rate <= max_idx_rate;idx_rate++)
+    {
+        RateStats elem_rateStats;
+        elem_rateStats.average_tx_time = 0;
+        elem_rateStats.last_tx = 0;
+        elem_rateStats.packets_acked = 0;
+        elem_rateStats.retries = 0;
+        elem_rateStats.perfect_tx_time = 0;
+        elem_rateStats.successive_failures = 0;
+        elem_rateStats.total_packets = 0;
+
+        mapRateStats[idx_rate] = elem_rateStats;
+    }
+
 }
 
 SampleRate::~SampleRate() {
@@ -51,7 +70,7 @@ int SampleRate::getBitRate()
     {
         //Get the current bitrate stats
         bitrate_stats = &mapRateStats[currentIdxBitrate];
-        if(bitrate_stats->packets_acked%10 == 0)
+        if(bitrate_stats->packets_acked != 0 && bitrate_stats->packets_acked%10 == 0)
         {//Get the random bitrate from the less transmision time
             idxBitRate_result = selectBitRateMinTransmssionTime(true);
         }
@@ -93,7 +112,8 @@ int SampleRate::selectBitRateMinTransmssionTime(bool random)
             }
         }
 
-        idxBitRate_result = rand()*i;
+        int random_index = rand()%i;
+        idxBitRate_result = ratesLessTime[random_index];//random between the bitrates with less time
 
     }
     else
@@ -123,26 +143,41 @@ int SampleRate::selectBitRateMinTransmssionTime(bool random)
 }
 void SampleRate::reportDataOk(double transmissionTime)
 {
-    RateStats *current_bitrate_stats = &mapRateStats[currentIdxBitrate];
+    int idxBitRate;
+
+    if(currentIdxBitrate == -1)//First case
+    {
+        idxBitRate = Ieee80211Descriptor::getMaxIdx(opMode);
+    }
+    else
+        idxBitRate = currentIdxBitrate;
+
+
+    RateStats *current_bitrate_stats = &mapRateStats[idxBitRate];
     current_bitrate_stats->packets_acked++;
     current_bitrate_stats->total_packets++;
-    current_bitrate_stats->retries = 0;
     current_bitrate_stats->successive_failures = 0;
 
-    current_bitrate_stats->last_tx = transmissionTime;
-    //Average transmission time
-    current_bitrate_stats->average_tx_time = (current_bitrate_stats->average_tx_time + transmissionTime) / current_bitrate_stats->packets_acked;
+    if(current_bitrate_stats->retries > 0)
+        //Average transmission time. Take a count the retries with transmission time.
+        current_bitrate_stats->average_tx_time = (current_bitrate_stats->average_tx_time + (transmissionTime*current_bitrate_stats->retries)) / current_bitrate_stats->packets_acked;
+    else
+    {
+        //Average transmission time
+        current_bitrate_stats->average_tx_time = (current_bitrate_stats->average_tx_time + transmissionTime) / current_bitrate_stats->packets_acked;
+    }
+    current_bitrate_stats->retries = 0;
 
 }
 void SampleRate::reportDataFailed()
-{
+{//TODO: posiblemente haya que meter como parámetro el transmissiontime con los reintentos
     RateStats *current_bitrate_stats = &mapRateStats[currentIdxBitrate];
     current_bitrate_stats->successive_failures++;
 
 }
 
 void SampleRate::reportRecoveryFailure()
-{
+{//TODO: posiblemente haya que meter como parámetro el transmissiontime con los reintentos
     RateStats *current_bitrate_stats = &mapRateStats[currentIdxBitrate];
 
     current_bitrate_stats->retries++;

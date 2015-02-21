@@ -75,10 +75,10 @@ network ThroughputNetwork
         //        double playgroundSizeY;
         @display("b=297,203");
     submodules:
-        cliHost[numCli]: ThroughputClient {
-            parameters:
-                @display("r=,,#707070");
-        }
+//        cliHost[numCli]: ThroughputClient {
+//            parameters:
+//                @display("r=,,#707070");
+//        }
         channelControl: ChannelControl {
             @display("p=52,44");
         }

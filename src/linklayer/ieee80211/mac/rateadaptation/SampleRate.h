@@ -20,13 +20,13 @@
 
 struct RateStats
 {
-    unsigned average_tx_time;
+    float average_tx_time;
     int successive_failures;
     int retries;
     int total_packets;
     int packets_acked;
-    unsigned perfect_tx_time; /* transmit time for 0 retries */
-    int last_tx;
+    float perfect_tx_time; /* transmit time for 0 retries */
+    float last_tx;
 };
 
 class SampleRate {

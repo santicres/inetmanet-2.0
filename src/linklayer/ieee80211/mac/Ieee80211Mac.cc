@@ -2358,6 +2358,18 @@ Ieee80211Frame *Ieee80211Mac::setBitrateFrame(Ieee80211Frame *frame)
  */
 void Ieee80211Mac::finishCurrentTransmission()
 {
+    //TODO get the transmission time
+    if (rateControlMode == RATE_SAMPLERATE)
+    {//TODO probar
+        //Get the frame
+        Ieee80211Frame *transmission_frame = dynamic_cast<Ieee80211Frame *>(transmissionQueue()->front());
+
+        if(transmission_frame != NULL)
+        {
+            double durationTime = computeFrameDuration(transmission_frame);
+            samplerate_bitrateadaptation->reportDataOk(durationTime);
+        }
+    }
     popTransmissionQueue();
     resetStateVariables();
 }
@@ -2377,7 +2389,7 @@ void Ieee80211Mac::retryCurrentTransmission()
     ASSERT(retryCounter() < transmissionLimit - 1);
     getCurrentTransmission()->setRetry(true);
     if (rateControlMode == RATE_AARF || rateControlMode == RATE_ARF ||
-            rateControlMode == RATE_ONOE)
+            rateControlMode == RATE_ONOE || rateControlMode == RATE_SAMPLERATE)
         reportDataFailed();
     else
         retryCounter() ++;
@@ -2683,19 +2695,10 @@ void Ieee80211Mac::reportDataOk()
     }
     else if (rateControlMode == RATE_SAMPLERATE)
     {//TODO probar
-        //Get the frame
-        Ieee80211DataOrMgmtFrame *frame = getCurrentTransmission();
-        if(frame != NULL)
-        {
-            simtime_t durationTime = frame->getDuration();
-            samplerate_bitrateadaptation->reportDataOk(durationTime.dbl());
 
-            int idx_bitrate;
-            idx_bitrate = samplerate_bitrateadaptation->getBitRate();
-            setBitrate(Ieee80211Descriptor::getDescriptor(idx_bitrate).bitrate);
-
-        }
-
+        int idx_bitrate;
+        idx_bitrate = samplerate_bitrateadaptation->getBitRate();
+        setBitrate(Ieee80211Descriptor::getDescriptor(idx_bitrate).bitrate);
     }
     else //Other bitrate adaptation algorithms
     {
