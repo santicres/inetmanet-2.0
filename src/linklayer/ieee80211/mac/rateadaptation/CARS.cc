@@ -2,7 +2,6 @@
 #include "CARS.h"
 #include "Ieee80211DataRate.h"
 
-
 using namespace std;
 
 CARS::CARS(char opMode, int transmissionLimit) {
@@ -26,6 +25,16 @@ CARS::CARS(char opMode, int transmissionLimit) {
 
     this->opMode = opMode;
     this->transmissionLimit = transmissionLimit;
+
+    parseTable = NULL;
+
+    const char *fname = "per_table_80211g_Trivellato.dat";
+    std::string name(fname);
+    if (!name.empty())
+    {
+        parseTable = new BerParseFile(opMode);
+        parseTable->parseFile(fname);
+    }
 }
 
 CARS::~CARS() {
@@ -36,7 +45,7 @@ void CARS::setUpdateInterval(double val)//periodic update time interval in ms
     update_interval = val;
 }
 
-double CARS::getAlpha(double speed)//This speed is relative speed between two vehicles
+double CARS::getAlpha(double speed)
 {
     double S = 30.0;
     double alpha = 0.0;
@@ -78,7 +87,7 @@ void CARS::setMaxRetransmissions(long a)
  * Select the best bitrate using CARS (Adapted Context-aware rate selection) algorithm.
  * POST: res = best_rate in Ieee80211DataDescriptor
  */
-double CARS::getBitRate(double context_information, double alpha_weight, int packet_length)
+double CARS::getBitRate(double context_information, double alpha_weight, int packet_length,double snr)
 {
     double bitrate;
     double max_throughput = 0, throughput = 0;
@@ -94,7 +103,7 @@ double CARS::getBitRate(double context_information, double alpha_weight, int pac
     {
         bitrate = Ieee80211Descriptor::getDescriptor(idx_rate).bitrate;
 
-        PER = (alpha_weight * Ec(context_information,bitrate,packet_length)) + ((1 - alpha_weight)*Eh(bitrate,packet_length));
+        PER = (alpha_weight * Ec(context_information,bitrate,packet_length,bitrate,snr)) + ((1 - alpha_weight)*Eh(bitrate,packet_length));
         //insert the per in the map
         if(mapLastPERs.find(idx_rate) != mapLastPERs.end())//If idx_rate exist
         {
@@ -130,9 +139,16 @@ context information, transmission rate and packet length as
 input parameters, and outputs the estimated packet error rate.
 Post: result = PER (packet error rate)
  */
-double CARS::Ec(double speed, double rate, double packet_length)
+double CARS::Ec(double speed, double rate, double packet_length,double bitrate,double snr)
 {
-    double PER = 0.0;
+
+    double PER = parseTable->getPer(bitrate,snr,packet_length);
+
+
+
+
+
+/*    double PER = 0.0;
     double temp1 = 0.0, temp2 = 0.0;
     double previous_PER = 0.0;
 
@@ -144,7 +160,7 @@ double CARS::Ec(double speed, double rate, double packet_length)
      *  then PER will increase by factor of 16.
      *
     */
-
+/*
     temp1 = (rate/Ieee80211Descriptor::getDescriptor(previous_bitrateIdx).bitrate);
     temp1 = (temp1*temp1);
 
@@ -170,7 +186,7 @@ double CARS::Ec(double speed, double rate, double packet_length)
         previous_PER = 1;
     }
     PER = (previous_PER*temp1*temp2);
-
+*/
     return PER;
 }
 
@@ -373,4 +389,11 @@ void CARS::setPrevious_Bitrate(double bitrate)
 void CARS::setPreviousIdx(double idx)
 {
     previous_bitrateIdx = idx;
+}
+
+void CARS::setCurrentDistance(double currentDistance)
+{
+    this->previous_distance = this->current_distance;
+    this->current_distance = currentDistance;
+
 }

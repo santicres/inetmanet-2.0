@@ -75,24 +75,18 @@ network ThroughputNetwork
         //        double playgroundSizeY;
         @display("b=297,203");
     submodules:
-//        cliHost[numCli]: ThroughputClient {
-//            parameters:
-//                @display("r=,,#707070");
-//        }
         channelControl: ChannelControl {
             @display("p=52,44");
-        }
-        accessPoint: AccessPoint {
-            parameters:
-                wlan[*].mgmtType = "Ieee80211MgmtAPSimplified";
-                @display("p=230,154");
         }
         wirelessMobilityHost[numCli]: WirelessHost {
             @display("p=307,54");
         }
         configurator: IPv4NetworkConfigurator {
-            config=xml("<config><interface hosts='*' address='145.236.x.x' netmask='255.255.0.0'/></config>");
+            config = xml("<config><interface hosts='*' address='145.236.x.x' netmask='255.255.0.0'/></config>");
             @display("p=140,50");
+        }
+        accessPoint: AccessPoint {
+            @display("p=178,96");
         }
 }
 

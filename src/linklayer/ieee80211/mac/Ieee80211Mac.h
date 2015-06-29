@@ -199,7 +199,10 @@ class INET_API Ieee80211Mac : public WirelessMacBase, public cListener
     /***********SCH-SAMPLE-RATE*************************/
     SampleRate *samplerate_bitrateadaptation;
 
-    /***************************************************/
+    /***********SCH STATISTICS****************************************/
+    cOutVector statistics_bitrate;
+    /************************************************************/
+
     /** Maximum number of frames in the queue; should be set in the omnetpp.ini */
     int maxQueueSize;
     int maxCategorieQueueSize;

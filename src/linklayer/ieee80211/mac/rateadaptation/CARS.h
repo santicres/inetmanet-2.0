@@ -6,6 +6,7 @@
 #include <map>
 #include <vector>
 #include "Coord.h"
+#include "BerParseFile.h"
 
 class CARS {
 public:
@@ -15,7 +16,7 @@ public:
     void   setMaxRetransmissions(long a);
     double cars_getBitRate(double speed,long len);//select and return the BitRate should use to
                 //transmit Pacts
-    double getBitRate(double context_information, double alpha_weight, int packet_length);
+    double getBitRate(double context_information, double alpha_weight, int packet_length,double snr);
     double getAlpha(double speed);
     void   setFirstPER(double val, double rate);//val = PER, rate = p band rate in Mbps
     void   setCurrentPER(double val, double rate);//val = PER, rate = p band rate in Mbps
@@ -30,6 +31,7 @@ public:
     double getDistance(Coord node1, Coord node2);
     void   setPrevious_Bitrate(double bitrate);
     void   setPreviousIdx(double idx);
+    void   setCurrentDistance(double currentDistance);
 
     CARS(char opMode, int transmissionLimit);
     virtual ~CARS();
@@ -53,6 +55,7 @@ private:
     std::map<int,std::vector<double> > mapLastPERs;//Last 10 PERs of each data rate. map<idx,vector of PERs>. vector(PER) is ordered ascending as a queue(newer at the end).
     int transmissionLimit;//from Iee802Mac
     double previous_bitrateIdx;//One bitrate before that the current bitrate. Debe ser un idx.
+    BerParseFile *parseTable;//file to get PER by snr,speed and packet len
 
 
 
@@ -62,7 +65,7 @@ private:
                 //in order to get PER depending on past data
     double updateDistance();
     double Eh(double rate, double packet_length);
-    double Ec(double speed, double rate, double packet_length);
+    double Ec(double speed, double rate, double packet_length,double bitrate,double snr);
     double getCumulativeTotalEWMA(int idx_rate,std::vector<double> lastPERs);
     double getTotalEWMA(int val);
 };

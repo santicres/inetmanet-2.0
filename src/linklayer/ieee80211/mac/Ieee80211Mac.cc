@@ -429,6 +429,8 @@ void Ieee80211Mac::initialize(int stage)
             outVectors.macDelay = new cOutVector(delay.c_str());
             edcCAFOutVector.push_back(outVectors);
         }
+
+        statistics_bitrate.setName("autobitrate");
         // Code to compute the throughput over a period of time
         throughputTimePeriod = par("throughputTimePeriod");
         recBytesOverPeriod = 0;
@@ -563,7 +565,7 @@ void Ieee80211Mac::configureAutoBitRate()
 
 void Ieee80211Mac::finish()
 {
-    recordScalar("number of received packets", numReceived);
+    recordScalar("number of multicast received packets", numReceivedMulticast);
     recordScalar("number of collisions", numCollision);
     recordScalar("number of internal collisions", numInternalCollision);
     for (int i=0; i<numCategories(); i++)
@@ -652,75 +654,10 @@ void Ieee80211Mac::handleSelfMsg(cMessage *msg)
 
     if (strcmp(msg->getName(),"autobitrateTimer") == 0)
     {
-        if(rateControlMode == RATE_ONOE)
-        {
-//TODO onoe timer
-            TypeRateDecision bitrateDecicion = onoe_bitrateadaptation->checkBitrateDecision();
-            switch(bitrateDecicion)
-            {
-                case DECREASE_BITRATE:
-                    if (Ieee80211Descriptor::decIdx(rateIndex))
-                        setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
-                    EV<<"ONOE -> Decrease bitrate. "<<onoe_bitrateadaptation->toString()<<endl;
-
-                    break;
-                case INCREASE_BITRATE:
-                    if (Ieee80211Descriptor::incIdx(rateIndex))
-                        setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
-                    EV<<"ONOE -> Increase bitrate. "<<onoe_bitrateadaptation->toString()<<endl;
-
-                    break;
-                default:
-                    EV<<"Onoe does not change the bitrate"<<onoe_bitrateadaptation->toString()<<endl;
-
-            }
-
-        }
-        else if(rateControlMode == RATE_CARS)
-        {
-            double best_bitrate, speed = 0.0, alpha_weight;
-            int packet_length;
-
-            //Get speed of the host
-            cModule *module_host = getParentModule()->getParentModule();
-
-            LinearMobility *mobilityModule  = dynamic_cast<LinearMobility*>(module_host->getSubmodule("mobility"));
-
-            if(module_host)
-            {
-                speed = mobilityModule->getSpeed();
-            }
-
-            //Get distance between transmitter and destination
-            //Distance from AccessPoint
-            Coord apCoord;
-            cModule *module = simulation.getModuleByPath("accessPoint");
-            if(module)
-            {
-                apCoord = MobilityAccess().get(module)->getCurrentPosition();
-            }
-
-            Coord cliCoord;
-            if(module_host)
-            {
-                cliCoord = mobilityModule->getCurrentPosition();
-            }
-            previous_distance = current_distance;
-            current_distance = carsPER_bitrateadaptation->getDistance(cliCoord,apCoord);
-
-            //Get packet length
-            packet_length = par("packetLength");//TODO este par᭥tro debe venir del nivel de aplicaci?        //Update bitrate
-            carsPER_bitrateadaptation->setPreviousIdx(rateIndex);
-            alpha_weight = carsPER_bitrateadaptation->getAlpha(speed);
-            best_bitrate = carsPER_bitrateadaptation->getBitRate(speed,alpha_weight,packet_length);
-            EV<<"CARS change the bitrate from "<<bitrate<<" to bestbitrate "<<best_bitrate<<endl;
-            setBitrate(best_bitrate);
-
-        }
+        checkBitRateAdaptation(0);
 
         //Send timer signal for the next iteration of cars autobitrate
         scheduleAt(simTime()+ autobitrateTimerPeriod, autobitrateTimer);
-
 
         return;
 
@@ -2360,7 +2297,7 @@ void Ieee80211Mac::finishCurrentTransmission()
 {
     //TODO get the transmission time
     if (rateControlMode == RATE_SAMPLERATE)
-    {//TODO probar
+    {
         //Get the frame
         Ieee80211Frame *transmission_frame = dynamic_cast<Ieee80211Frame *>(transmissionQueue()->front());
 
@@ -2861,6 +2798,7 @@ double Ieee80211Mac::getBitrate()
 void Ieee80211Mac::setBitrate(double rate)
 {
     bitrate = rate;
+    statistics_bitrate.record(rate/1e6);
 }
 
 
@@ -3317,6 +3255,51 @@ void Ieee80211Mac::checkBitRateAdaptation(double in_snr)
     double new_bitrateIndex;
     switch(rateControlMode)
         {
+            case RATE_CARS:
+            {
+                double best_bitrate, speed, alpha_weight;
+                int packet_length;
+
+                //Get speed of the host
+                cModule *module_host;
+                module_host = getParentModule()->getParentModule();
+
+                LinearMobility *mobilityModule;
+                mobilityModule = dynamic_cast<LinearMobility*>(module_host->getSubmodule("mobility"));
+
+                if(module_host)
+                {
+                    speed = mobilityModule->getSpeed();
+                }
+
+                //Get distance between transmitter and destination
+                Coord apCoord;
+                cModule *module;
+                module = simulation.getModuleByPath("accessPoint");
+                if(module)
+                {
+                    apCoord = MobilityAccess().get(module)->getCurrentPosition();
+                }
+
+                Coord hostCoord;
+                if(module_host)
+                {
+                    hostCoord = mobilityModule->getCurrentPosition();
+                }
+
+                current_distance = carsPER_bitrateadaptation->getDistance(apCoord,hostCoord);
+                carsPER_bitrateadaptation->setCurrentDistance(current_distance);
+
+                //Get packet length
+                packet_length = par("packetLength");//TODO este par᭥tro debe venir del nivel de aplicaci?        //Update bitrate
+                carsPER_bitrateadaptation->setPreviousIdx(rateIndex);
+                alpha_weight = carsPER_bitrateadaptation->getAlpha(speed);
+                best_bitrate = carsPER_bitrateadaptation->getBitRate(speed,alpha_weight,packet_length,in_snr);
+                EV<<"CARS change the bitrate from "<<bitrate<<" to bestbitrate "<<best_bitrate<<endl;
+                setBitrate(best_bitrate);
+
+                break;
+            }
             case RATE_ACARS:
                 EV<<"ACARS: Initiating checking for a new bit rate. Current rate: "<<Ieee80211Descriptor::getDescriptor(rateIndex).bitrate<<"with rateIndex:"<<rateIndex<<"and SNR:"<<in_snr<<endl;
                 new_bitrateIndex = acars_bitrateadaptation->getBitRate(rateIndex,in_snr);
@@ -3326,6 +3309,29 @@ void Ieee80211Mac::checkBitRateAdaptation(double in_snr)
                     double newBitrate = Ieee80211Descriptor::getDescriptor(new_bitrateIndex).bitrate;
                     rateIndex = new_bitrateIndex;
                     setBitrate(newBitrate);
+                }
+
+                break;
+            case RATE_ONOE:
+                TypeRateDecision bitrateDecicion;
+                bitrateDecicion = onoe_bitrateadaptation->checkBitrateDecision();
+                switch(bitrateDecicion)
+                {
+                    case DECREASE_BITRATE:
+                        if (Ieee80211Descriptor::decIdx(rateIndex))
+                            setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+                        EV<<"ONOE -> Decrease bitrate. "<<onoe_bitrateadaptation->toString()<<endl;
+
+                        break;
+                    case INCREASE_BITRATE:
+                        if (Ieee80211Descriptor::incIdx(rateIndex))
+                            setBitrate(Ieee80211Descriptor::getDescriptor(rateIndex).bitrate);
+                        EV<<"ONOE -> Increase bitrate. "<<onoe_bitrateadaptation->toString()<<endl;
+
+                        break;
+                    default:
+                        EV<<"Onoe does not change the bitrate"<<onoe_bitrateadaptation->toString()<<endl;
+
                 }
 
                 break;
